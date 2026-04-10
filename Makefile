@@ -16,7 +16,7 @@ logs:
 	docker compose logs -f
 
 
-.PHONY: generate assign report complete dashboard demo
+.PHONY: generate assign report complete dashboard demo mongo
 
 generate:
 	$(UV) generate_data.py
@@ -36,6 +36,9 @@ dashboard:
 demo:
 	python -m delivery_system.cli demo --order c1 --driver d3
 
+mongo:
+	$(UV) -m delivery_system.mongo_cli all
+
 
 .PHONY: help
 
@@ -51,3 +54,4 @@ help:
 	@echo "  complete    - Simuler la fin de livraison c1 par d3"
 	@echo "  dashboard   - Afficher le dashboard global temps reel"
 	@echo "  demo        - Executer le scenario complet (report + simulation + dashboard)"
+	@echo "  mongo       - Lancer les requetes MongoDB (Partie 2)"
