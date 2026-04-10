@@ -6,19 +6,18 @@ from config import get_redis, get_mongo_db
 
 fake = Faker("fr_FR")
 
-
 BASE_DRIVERS = [
-    {"id": "d1", "name": "Alice Dupont", "region": "Paris", "rating": 4.8},
-    {"id": "d2", "name": "Bob Martin", "region": "Paris", "rating": 4.5},
-    {"id": "d3", "name": "Charlie Lefevre", "region": "Banlieue", "rating": 4.9},
-    {"id": "d4", "name": "Diana Russo", "region": "Banlieue", "rating": 4.3},
+    {"id": "d1", "name": "Alice Dupont", "regions": ["Paris", "Banlieue"], "rating": 4.8},
+    {"id": "d2", "name": "Bob Martin", "regions": ["Paris"], "rating": 4.5},
+    {"id": "d3", "name": "Charlie Lefevre", "regions": ["Banlieue"], "rating": 4.9},
+    {"id": "d4", "name": "Diana Russo", "regions": ["Banlieue", "Paris"], "rating": 4.3},
 ]
 
 BASE_ORDERS = [
-    {"id": "c1", "client": "Client A", "destination": "Marais", "amount": 25, "created_at": "14:00"},
-    {"id": "c2", "client": "Client B", "destination": "Belleville", "amount": 15, "created_at": "14:05"},
-    {"id": "c3", "client": "Client C", "destination": "Bercy", "amount": 30, "created_at": "14:10"},
-    {"id": "c4", "client": "Client D", "destination": "Auteuil", "amount": 20, "created_at": "14:15"},
+    {"id": "c1", "client": "Client A", "destination": "Marais", "region": "Paris", "amount": 25, "created_at": "14:00"},
+    {"id": "c2", "client": "Client B", "destination": "Belleville", "region": "Paris", "amount": 15, "created_at": "14:05"},
+    {"id": "c3", "client": "Client C", "destination": "Bercy", "region": "Paris", "amount": 30, "created_at": "14:10"},
+    {"id": "c4", "client": "Client D", "destination": "Auteuil", "region": "Paris", "amount": 20, "created_at": "14:15"},
 ]
 
 REGIONS = ["Paris", "Banlieue"]
@@ -38,24 +37,20 @@ REVIEWS = [
 ]
 
 
-
 def generate_extra_drivers(count=16):
-    """Génère des livreurs supplémentaires (d5, d6, ...)."""
     drivers = []
     for i in range(5, 5 + count):
+        num_regions = random.randint(1, len(REGIONS))
         drivers.append({
             "id": f"d{i}",
             "name": fake.name(),
-            "region": random.choice(REGIONS),
+            "regions": random.sample(REGIONS, num_regions),
             "rating": round(random.uniform(3.5, 5.0), 1),
         })
     return drivers
 
 
-
-
 def generate_extra_orders(count=16):
-    """Génère des commandes supplémentaires (c5, c6, ...)."""
     orders = []
     base_hour = 14
     base_minute = 20
@@ -67,25 +62,21 @@ def generate_extra_orders(count=16):
             "id": f"c{i}",
             "client": fake.first_name(),
             "destination": random.choice(DESTINATIONS),
+            "region": random.choice(REGIONS),
             "amount": random.randint(10, 50),
             "created_at": f"{hour}:{minute:02d}",
         })
     return orders
 
 
-
-
 def generate_deliveries(drivers, count=30):
-    """Génère des livraisons complétées pour l'historique MongoDB."""
     deliveries = []
     base_date = datetime(2025, 12, 6, 10, 0, 0)
-
     for i in range(count):
         driver = random.choice(drivers)
         duration = random.randint(10, 40)
         pickup = base_date + timedelta(minutes=random.randint(0, 480))
         delivery_time = pickup + timedelta(minutes=duration)
-
         deliveries.append({
             "command_id": f"c{i + 100}",
             "client": fake.first_name(),
@@ -95,68 +86,60 @@ def generate_deliveries(drivers, count=30):
             "delivery_time": delivery_time,
             "duration_minutes": duration,
             "amount": random.randint(10, 50),
-            "region": driver["region"],
+            "region": random.choice(driver["regions"]),
             "rating": round(random.uniform(3.0, 5.0), 1),
             "review": random.choice(REVIEWS),
             "status": "completed",
         })
-
     return deliveries
 
 
-
-
 def load_drivers_redis(r, drivers):
-    """Charge les livreurs dans Redis (hash + sorted set)."""
     pipe = r.pipeline()
     for d in drivers:
         key = f"driver:{d['id']}"
         pipe.hset(key, mapping={
             "name": d["name"],
-            "region": d["region"],
+            "region": d["regions"][0],
             "rating": str(d["rating"]),
             "deliveries_in_progress": "0",
             "deliveries_completed": "0",
         })
         pipe.zadd("drivers:ratings", {d["id"]: d["rating"]})
+        for region in d["regions"]:
+            pipe.sadd(f"driver:{d['id']}:regions", region)
+            pipe.sadd(f"region:{region}:drivers", d["id"])
     pipe.execute()
-    print(f"  -> {len(drivers)} livreurs charges dans Redis")
+    print(f"  {len(drivers)} livreurs charges")
 
 
 def load_orders_redis(r, orders):
-    """Charge les commandes dans Redis (hash + set par statut)."""
     pipe = r.pipeline()
     for o in orders:
         key = f"order:{o['id']}"
         pipe.hset(key, mapping={
             "client": o["client"],
             "destination": o["destination"],
+            "region": o["region"],
             "amount": str(o["amount"]),
             "created_at": o["created_at"],
             "status": "en_attente",
         })
         pipe.sadd("orders:en_attente", o["id"])
+        pipe.sadd(f"orders:en_attente:{o['region']}", o["id"])
     pipe.execute()
-    print(f"  -> {len(orders)} commandes chargees dans Redis")
-
-
+    print(f"  {len(orders)} commandes chargees")
 
 
 def load_deliveries_mongo(db, deliveries):
-    """Charge les livraisons historiques dans MongoDB."""
-    collection = db["deliveries"]
-    collection.drop()
+    col = db["deliveries"]
+    col.drop()
     if deliveries:
-        collection.insert_many(deliveries)
-    print(f"  -> {len(deliveries)} livraisons chargees dans MongoDB")
-
+        col.insert_many(deliveries)
+    print(f"  {len(deliveries)} livraisons chargees")
 
 
 def main():
-    print("=" * 60)
-    print("  Generateur de donnees - Systeme de livraison")
-    print("=" * 60)
-
     all_drivers = BASE_DRIVERS + generate_extra_drivers(16)
     all_orders = BASE_ORDERS + generate_extra_orders(16)
 
@@ -201,21 +184,22 @@ def main():
     extra_deliveries = generate_deliveries(all_drivers, count=30)
     all_deliveries = base_deliveries + extra_deliveries
 
-    print("\n[Redis] Chargement des donnees...")
+    print("[Redis]")
     r = get_redis()
-    r.flushdb()     
+    r.flushdb()
     load_drivers_redis(r, all_drivers)
     load_orders_redis(r, all_orders)
 
-    print("\n[MongoDB] Chargement des donnees...")
+    print("[MongoDB]")
     db = get_mongo_db()
     load_deliveries_mongo(db, all_deliveries)
 
-    print("\n" + "=" * 60)
-    print(f"    Livreurs :    {len(all_drivers)} ({len(BASE_DRIVERS)} de base + {len(all_drivers) - len(BASE_DRIVERS)} generes)")
-    print(f"    Commandes :   {len(all_orders)} ({len(BASE_ORDERS)} de base + {len(all_orders) - len(BASE_ORDERS)} generees)")
-    print(f"    Livraisons :  {len(all_deliveries)} ({len(base_deliveries)} de base + {len(extra_deliveries)} generees)")
-    print("=" * 60)
+    nb_base_d = len(BASE_DRIVERS)
+    nb_base_o = len(BASE_ORDERS)
+    nb_base_l = len(base_deliveries)
+    print(f"Livreurs : {len(all_drivers)} ({nb_base_d} base + {len(all_drivers) - nb_base_d} gen)")
+    print(f"Commandes : {len(all_orders)} ({nb_base_o} base + {len(all_orders) - nb_base_o} gen)")
+    print(f"Livraisons : {len(all_deliveries)} ({nb_base_l} base + {len(extra_deliveries)} gen)")
 
 
 if __name__ == "__main__":

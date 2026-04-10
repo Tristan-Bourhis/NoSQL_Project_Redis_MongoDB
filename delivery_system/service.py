@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +20,8 @@ class DeliveryService:
         "assignee": "orders:assignees",
         "livree": "orders:livrees",
     }
+    REGIONS = ("Paris", "Banlieue")
+    CACHE_TTL = 30
 
     def __init__(self, redis_client: Redis):
         self.redis = redis_client
@@ -34,6 +37,14 @@ class DeliveryService:
     @staticmethod
     def _driver_orders_key(driver_id: str) -> str:
         return f"driver:{driver_id}:orders"
+
+    @staticmethod
+    def _driver_regions_key(driver_id: str) -> str:
+        return f"driver:{driver_id}:regions"
+
+    @staticmethod
+    def _region_drivers_key(region: str) -> str:
+        return f"region:{region}:drivers"
 
     def assign_order(self, order_id: str, driver_id: str) -> OperationResult:
         order_key = self._order_key(order_id)
@@ -52,11 +63,14 @@ class DeliveryService:
                     status = pipe.hget(order_key, "status")
                     if status != "en_attente":
                         return OperationResult(False, f"ORDER_NOT_PENDING (status={status})")
+                    region = pipe.hget(order_key, "region")
 
                     pipe.multi()
                     pipe.hset(order_key, mapping={"status": "assignee", "driver_id": driver_id})
                     pipe.srem(self.STATUS_SETS["en_attente"], order_id)
                     pipe.sadd(self.STATUS_SETS["assignee"], order_id)
+                    if region:
+                        pipe.srem(f"orders:en_attente:{region}", order_id)
                     pipe.sadd(self._driver_orders_key(driver_id), order_id)
                     pipe.hincrby(driver_key, "deliveries_in_progress", 1)
                     pipe.execute()
@@ -157,4 +171,63 @@ class DeliveryService:
         return self.redis.hgetall(self._order_key(order_id))
 
     def driver_snapshot(self, driver_id: str) -> dict[str, str]:
-        return self.redis.hgetall(self._driver_key(driver_id))
+        data = self.redis.hgetall(self._driver_key(driver_id))
+        regions = self.get_driver_regions(driver_id)
+        data["regions"] = ",".join(regions)
+        return data
+
+    def get_driver_regions(self, driver_id: str) -> list[str]:
+        return sorted(self.redis.smembers(self._driver_regions_key(driver_id)))
+
+    def get_drivers_by_region(self, region: str) -> list[dict[str, Any]]:
+        driver_ids = sorted(self.redis.smembers(self._region_drivers_key(region)))
+        if not driver_ids:
+            return []
+        pipe = self.redis.pipeline(transaction=False)
+        for did in driver_ids:
+            pipe.hget(self._driver_key(did), "name")
+            pipe.hget(self._driver_key(did), "rating")
+        raw = pipe.execute()
+        result: list[dict[str, Any]] = []
+        for i, did in enumerate(driver_ids):
+            result.append({
+                "id": did,
+                "name": raw[i * 2] or "N/A",
+                "rating": float(raw[i * 2 + 1] or "0"),
+            })
+        return result
+
+    def refresh_cache(self) -> dict[str, Any]:
+        top5 = self.top_rated_drivers(limit=5)
+        self.redis.set("cache:top5_drivers", json.dumps(top5, ensure_ascii=False), ex=self.CACHE_TTL)
+
+        pending_by_region: dict[str, list[str]] = {}
+        for region in self.REGIONS:
+            order_ids = sorted(self.redis.smembers(f"orders:en_attente:{region}"))
+            pending_by_region[region] = order_ids
+            self.redis.set(
+                f"cache:pending_orders:{region}",
+                json.dumps(order_ids, ensure_ascii=False),
+                ex=self.CACHE_TTL,
+            )
+        return {"top5_drivers": top5, "pending_by_region": pending_by_region}
+
+    def get_cached_top5_drivers(self) -> list[dict[str, Any]] | None:
+        raw = self.redis.get("cache:top5_drivers")
+        if raw is None:
+            return None
+        return json.loads(raw)
+
+    def get_cached_pending_orders(self, region: str) -> list[str] | None:
+        raw = self.redis.get(f"cache:pending_orders:{region}")
+        if raw is None:
+            return None
+        return json.loads(raw)
+
+    def get_cache_ttl(self) -> dict[str, int]:
+        result: dict[str, int] = {}
+        result["cache:top5_drivers"] = self.redis.ttl("cache:top5_drivers")
+        for region in self.REGIONS:
+            key = f"cache:pending_orders:{region}"
+            result[key] = self.redis.ttl(key)
+        return result

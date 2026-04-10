@@ -74,6 +74,30 @@ uv run -m delivery_system.mongo_cli top --limit 5
 uv run -m delivery_system.mongo_cli indexes       # Creer et afficher les index
 ```
 
+## Structures avancees (Partie 3)
+
+### Livreurs multi-regions
+
+Un livreur peut operer dans plusieurs regions. La structure Redis utilise des Sets :
+- `driver:{id}:regions` : regions du livreur
+- `region:{name}:drivers` : index inverse (livreurs par region)
+
+```bash
+make drivers-by-region                             # Livreurs operant a Paris
+$(UV) -m delivery_system.cli drivers-by-region --region Banlieue
+```
+
+### Cache avec expiration (TTL 30s)
+
+Deux caches sont maintenus avec une expiration automatique de 30 secondes :
+- `cache:top5_drivers` : top 5 livreurs par rating (JSON)
+- `cache:pending_orders:{region}` : commandes en attente par region (JSON)
+
+```bash
+make cache-refresh    # Construire/rafraichir le cache
+make cache-show       # Afficher le cache avec TTL restant
+```
+
 ## Commandes Make disponibles
 
 ```bash
@@ -93,6 +117,9 @@ make help
 | `make dashboard`  | Afficher le dashboard global |
 | `make demo`       | Executer le scenario complet des travaux Redis |
 | `make mongo`      | Executer tous les travaux MongoDB |
+| `make drivers-by-region` | Livreurs operant a Paris (multi-regions) |
+| `make cache-refresh` | Rafraichir le cache Redis (TTL 30s) |
+| `make cache-show` | Afficher le contenu du cache |
 
 ## Structure du projet
 
@@ -100,7 +127,7 @@ make help
 .
 |-- delivery_system/
 |   |-- __init__.py
-|   |-- cli.py             # CLI Redis (assign, report, complete, dashboard, demo)
+|   |-- cli.py             # CLI Redis (assign, report, complete, dashboard, demo, drivers-by-region, cache-*)
 |   |-- service.py         # Operations Redis transactionnelles
 |   |-- mongo_cli.py       # CLI MongoDB (import, history, regions, top, indexes)
 |   `-- mongo_service.py   # Requetes et agregations MongoDB

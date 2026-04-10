@@ -18,96 +18,75 @@ REGION_MAP = {
 
 
 def sync_to_mongo(order_id: str, driver_id: str):
-    """
-    Clôture une livraison dans Redis ET la synchronise dans MongoDB.
-    C'est le pont entre les deux bases de données.
-    """
-
-    r  = get_redis()
+    r = get_redis()
     db = get_mongo_db()
 
-    service = DeliveryService(r)
-    result  = service.complete_delivery(order_id, driver_id)
+    svc = DeliveryService(r)
+    res = svc.complete_delivery(order_id, driver_id)
 
-    if not result.ok:
-        print(f"Erreur Redis : {result.message}")
+    if not res.ok:
+        print(f"Erreur Redis : {res.message}")
         return
 
-    print(f"Redis mis à jour : commande {order_id} → livree")
+    print(f"Redis : {order_id} -> livree")
 
-    order_data = r.hgetall(f"order:{order_id}")
-
-    if not order_data:
-        print(f"Commande {order_id} introuvable dans Redis")
+    order = r.hgetall(f"order:{order_id}")
+    if not order:
+        print(f"Commande {order_id} introuvable")
         return
 
-    driver_data = r.hgetall(f"driver:{driver_id}")
-
-    if not driver_data:
-        print(f"Livreur {driver_id} introuvable dans Redis")
+    driver = r.hgetall(f"driver:{driver_id}")
+    if not driver:
+        print(f"Livreur {driver_id} introuvable")
         return
 
     now = datetime.now()
-
-    destination = order_data.get("destination", "")
-    region = REGION_MAP.get(destination, driver_data.get("region", ""))
+    destination = order.get("destination", "")
+    region = REGION_MAP.get(destination, driver.get("region", ""))
 
     document = {
         "command_id":       order_id,
-        "client":           order_data.get("client", ""),
+        "client":           order.get("client", ""),
         "driver_id":        driver_id,
-        "driver_name":      driver_data.get("name", ""),
-        "pickup_time":      now,          # heure de clôture
+        "driver_name":      driver.get("name", ""),
+        "pickup_time":      now,
         "delivery_time":    now,
-        "duration_minutes": 0,            # non disponible dans Redis
-        "amount":           int(order_data.get("amount", 0)),
-        "region":           region,       # depuis la destination
-        "rating":           float(driver_data.get("rating", 0)),
-        "review":           "",           # rempli par le client après
+        "duration_minutes": 0,
+        "amount":           int(order.get("amount", 0)),
+        "region":           region,
+        "rating":           float(driver.get("rating", 0)),
+        "review":           "",
         "status":           "completed",
     }
 
-    collection = db["deliveries"]
-    insert_result = collection.insert_one(document)
-
-    print(f"MongoDB mis à jour : document inséré (_id={insert_result.inserted_id})")
-    print(f"   Commande : {order_id} | Livreur : {driver_data.get('name')} | Montant : {document['amount']}€ | Région : {region}")
+    col = db["deliveries"]
+    insert_res = col.insert_one(document)
+    print(f"MongoDB : insere _id={insert_res.inserted_id}")
+    print(f"  {order_id} | {driver.get('name')} | {document['amount']}E | {region}")
 
 
 if __name__ == "__main__":
-
-    print("=" * 55)
-    print("   Synchronisation Redis → MongoDB")
-    print("=" * 55)
-
-    r  = get_redis()
+    r = get_redis()
     db = get_mongo_db()
 
-    en_attente = r.smembers("orders:en_attente")
-    print(f"\nCommandes en attente : {sorted(en_attente)}")
+    pending = r.smembers("orders:en_attente")
+    print(f"En attente : {sorted(pending)}")
 
-    print("\n[1] Assignation de c1 à d3...")
-    service = DeliveryService(r)
-    res = service.assign_order("c1", "d3")
-    print(f"    → {res.message}")
+    print("\n1. Assignation c1 -> d3")
+    svc = DeliveryService(r)
+    res = svc.assign_order("c1", "d3")
+    print(f"   {res.message}")
 
-    print("\n[2] Clôture et synchronisation c1 → MongoDB...")
+    print("\n2. Cloture + sync c1 -> MongoDB")
     sync_to_mongo("c1", "d3")
 
-    print("\n[3] Vérification dans MongoDB...")
+    print("\n3. Verification MongoDB")
     doc = db["deliveries"].find_one(
         {"command_id": "c1", "driver_id": "d3", "status": "completed"},
-        sort=[("delivery_time", -1)]   
+        sort=[("delivery_time", -1)]
     )
     if doc:
-        print(f"    Document trouvé dans MongoDB :")
-        print(f"       command_id : {doc['command_id']}")
-        print(f"       client     : {doc['client']}")
-        print(f"       driver     : {doc['driver_name']}")
-        print(f"       montant    : {doc['amount']}€")
-        print(f"       région     : {doc['region']}")
-        print(f"       statut     : {doc['status']}")
+        print(f"   {doc['command_id']} | {doc['client']} | {doc['driver_name']} | "
+              f"{doc['amount']}E | {doc['region']} | {doc['status']}")
     else:
-        print("    Document non trouvé")
-
-    print("\n" + "=" * 55)
+        print("   Non trouve")
