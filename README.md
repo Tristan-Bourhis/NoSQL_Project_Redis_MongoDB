@@ -4,8 +4,35 @@ Projet NoSQL utilisant Redis (temps reel) et MongoDB (historique/analyses) pour 
 
 ## Prerequis
 
+- **Make** (outil de build)
 - Docker et Docker Compose
 - [uv](https://docs.astral.sh/uv/) (gestionnaire de paquets Python)
+
+### Installation de Make
+
+Linux (Debian/Ubuntu) :
+
+```bash
+sudo apt update && sudo apt install make
+```
+
+macOS (via Xcode Command Line Tools) :
+
+```bash
+xcode-select --install
+```
+
+Windows (via Chocolatey) :
+
+```bash
+choco install make
+```
+
+Verifier l'installation :
+
+```bash
+make --version
+```
 
 ## Mise en route
 

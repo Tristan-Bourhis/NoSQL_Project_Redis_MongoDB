@@ -16,7 +16,7 @@ logs:
 	docker compose logs -f
 
 
-.PHONY: generate assign report complete dashboard demo mongo drivers-by-region cache-refresh cache-show
+.PHONY: generate assign report complete dashboard demo mongo drivers-by-region cache-refresh cache-show geo
 
 generate:
 	$(UV) generate_data.py
@@ -48,6 +48,9 @@ cache-refresh:
 cache-show:
 	$(UV) -m delivery_system.cli cache-show
 
+geo:
+	$(UV) geo.py
+
 
 .PHONY: help
 
@@ -67,3 +70,4 @@ help:
 	@echo "  drivers-by-region - Livreurs operant a Paris (Partie 3)"
 	@echo "  cache-refresh     - Rafraichir le cache Redis (TTL 30s)"
 	@echo "  cache-show        - Afficher le contenu du cache"
+	@echo "  geo               - Lancer les travaux geo-spatiaux (Partie 4)"
