@@ -1,4 +1,5 @@
 UV = uv run --with redis --with pymongo --with faker
+UVA = $(UV) --with fastapi --with uvicorn
 
 
 .PHONY: up down restart logs
@@ -52,6 +53,15 @@ geo:
 	$(UV) geo.py
 
 
+.PHONY: api front
+
+api:
+	$(UVA) uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+front:
+	cd frontend && npm run dev
+
+
 .PHONY: help
 
 help:
@@ -71,3 +81,5 @@ help:
 	@echo "  cache-refresh     - Rafraichir le cache Redis (TTL 30s)"
 	@echo "  cache-show        - Afficher le contenu du cache"
 	@echo "  geo               - Lancer les travaux geo-spatiaux (Partie 4)"
+	@echo "  api               - Lancer l'API FastAPI (port 8000)"
+	@echo "  front             - Lancer le frontend Vite (port 5173)"

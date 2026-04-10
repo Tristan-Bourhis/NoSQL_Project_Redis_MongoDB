@@ -1,12 +1,13 @@
 # Systeme de livraison - Redis & MongoDB
 
-Projet NoSQL utilisant Redis (temps reel) et MongoDB (historique/analyses) pour gerer un systeme de livraison.
+Projet NoSQL utilisant Redis (temps reel) et MongoDB (historique/analyses) pour gerer un systeme de livraison. Interface web avec FastAPI + React.
 
 ## Prerequis
 
 - **Make** (outil de build)
 - Docker et Docker Compose
 - [uv](https://docs.astral.sh/uv/) (gestionnaire de paquets Python)
+- Node.js 20+ et npm (pour le dev frontend local)
 
 ### Installation de Make
 
@@ -36,131 +37,129 @@ make --version
 
 ## Mise en route
 
-### 1. Lancer les bases de donnees
+### Option 1 : Docker (recommande)
+
+Lance les 4 services (Redis, MongoDB, API, Frontend) :
 
 ```bash
 make up
-```
-
-Verifier que les conteneurs tournent :
-
-```bash
-docker ps
-```
-
-Vous devez voir `delivery_redis` (port 6380) et `delivery_mongo` (port 27018).
-
-### 2. Charger les donnees initiales
-
-```bash
 make generate
 ```
 
-Ce script :
-- genere 20 livreurs (4 de base + 16 generes)
-- genere 20 commandes (4 de base + 16 generees)
-- genere 34 livraisons historiques (4 de base + 30 generees)
-- charge tout dans Redis et MongoDB
+Acces :
+- Frontend : http://localhost:3000
+- API Swagger : http://localhost:8000/docs
 
-## Commandes metier Redis
-
-Le projet expose une CLI modulaire :
+Pour rebuilder apres modification du code :
 
 ```bash
-python -m delivery_system.cli --help
+docker compose up -d --build api frontend
 ```
 
-Exemples :
+### Option 2 : Dev local (hot reload)
+
+Lancer Redis + MongoDB via Docker, puis l'API et le frontend en local :
 
 ```bash
-python -m delivery_system.cli assign --order c1 --driver d3
-python -m delivery_system.cli report
-python -m delivery_system.cli complete --order c1 --driver d3
-python -m delivery_system.cli dashboard
-python -m delivery_system.cli demo --order c1 --driver d3
+docker compose up -d redis mongodb
+make generate
+make api    # terminal 1 - API sur port 8000
+make front  # terminal 2 - Frontend sur port 5173
 ```
 
-## Analyses MongoDB
+Acces :
+- Frontend : http://localhost:5173
+- API Swagger : http://localhost:8000/docs
 
-Le projet expose une CLI dediee aux analyses MongoDB :
+## Interface web
+
+Dashboard unique avec 4 onglets :
+
+- **Commandes** : liste par statut, assignation d'un livreur, completion
+- **Livreurs** : tableau avec rating, regions, filtre par region, top 5
+- **Geo** : carte Leaflet avec lieux/livreurs, recherche par rayon, livreurs proches
+- **Analytics** : performance par region, top livreurs par revenu (MongoDB)
+
+Stack : React, TypeScript, shadcn/ui, TanStack Query, Leaflet, Vite, Nginx.
+
+## CLI Redis
 
 ```bash
-uv run --with redis --with pymongo --with faker -m delivery_system.mongo_cli --help
+make assign           # Affecter c1 a d3
+make report           # Commandes en attente vs assignees
+make complete         # Simuler fin de livraison c1/d3
+make dashboard        # Etat global du systeme
+make demo             # Scenario complet
+make drivers-by-region  # Livreurs operant a Paris
+make cache-refresh    # Rafraichir le cache (TTL 30s)
+make cache-show       # Afficher le cache
 ```
 
-Exemples :
+## CLI MongoDB
 
 ```bash
-make mongo                                        # Executer tous les travaux
-uv run -m delivery_system.mongo_cli import        # Verifier l'import
-uv run -m delivery_system.mongo_cli history       # Historique du livreur d1
-uv run -m delivery_system.mongo_cli history --driver d3
-uv run -m delivery_system.mongo_cli regions       # Performance par region
-uv run -m delivery_system.mongo_cli top           # Top 2 livreurs
+make mongo            # Executer tous les travaux
+```
+
+Sous-commandes individuelles :
+
+```bash
+uv run -m delivery_system.mongo_cli import
+uv run -m delivery_system.mongo_cli history --driver d1
+uv run -m delivery_system.mongo_cli regions
 uv run -m delivery_system.mongo_cli top --limit 5
-uv run -m delivery_system.mongo_cli indexes       # Creer et afficher les index
+uv run -m delivery_system.mongo_cli indexes
 ```
 
-## Structures avancees (Partie 3)
-
-### Livreurs multi-regions
-
-Un livreur peut operer dans plusieurs regions. La structure Redis utilise des Sets :
-- `driver:{id}:regions` : regions du livreur
-- `region:{name}:drivers` : index inverse (livreurs par region)
+## Geo-spatial
 
 ```bash
-make drivers-by-region                             # Livreurs operant a Paris
-$(UV) -m delivery_system.cli drivers-by-region --region Banlieue
+make geo              # Executer tous les travaux geo
 ```
 
-### Cache avec expiration (TTL 30s)
+## Commandes Make
 
-Deux caches sont maintenus avec une expiration automatique de 30 secondes :
-- `cache:top5_drivers` : top 5 livreurs par rating (JSON)
-- `cache:pending_orders:{region}` : commandes en attente par region (JSON)
-
-```bash
-make cache-refresh    # Construire/rafraichir le cache
-make cache-show       # Afficher le cache avec TTL restant
-```
-
-## Commandes Make disponibles
-
-```bash
-make help
-```
-
-| Commande          | Description |
-|-------------------|-------------|
-| `make up`         | Demarrer Redis + MongoDB (Docker) |
-| `make down`       | Arreter les conteneurs |
-| `make restart`    | Redemarrer les conteneurs |
-| `make logs`       | Voir les logs Docker |
-| `make generate`   | Generer et charger les donnees |
-| `make assign`     | Affecter `c1` a `d3` atomiquement |
-| `make report`     | Afficher commandes en attente vs assignees |
-| `make complete`   | Simuler la fin de livraison de `c1` par `d3` |
-| `make dashboard`  | Afficher le dashboard global |
-| `make demo`       | Executer le scenario complet des travaux Redis |
-| `make mongo`      | Executer tous les travaux MongoDB |
-| `make drivers-by-region` | Livreurs operant a Paris (multi-regions) |
-| `make cache-refresh` | Rafraichir le cache Redis (TTL 30s) |
-| `make cache-show` | Afficher le contenu du cache |
+| Commande | Description |
+|----------|-------------|
+| `make up` | Demarrer tous les services (Docker) |
+| `make down` | Arreter les conteneurs |
+| `make restart` | Redemarrer les conteneurs |
+| `make logs` | Voir les logs Docker |
+| `make generate` | Charger les donnees initiales |
+| `make api` | Lancer l'API FastAPI (port 8000) |
+| `make front` | Lancer le frontend Vite (port 5173) |
+| `make demo` | Scenario complet Redis |
+| `make mongo` | Tous les travaux MongoDB |
+| `make geo` | Travaux geo-spatiaux |
+| `make drivers-by-region` | Livreurs multi-regions |
+| `make cache-refresh` | Rafraichir le cache (TTL 30s) |
+| `make cache-show` | Afficher le cache |
 
 ## Structure du projet
 
 ```text
 .
+|-- api/
+|   `-- main.py              # API FastAPI (tous les endpoints)
 |-- delivery_system/
 |   |-- __init__.py
-|   |-- cli.py             # CLI Redis (assign, report, complete, dashboard, demo, drivers-by-region, cache-*)
-|   |-- service.py         # Operations Redis transactionnelles
-|   |-- mongo_cli.py       # CLI MongoDB (import, history, regions, top, indexes)
-|   `-- mongo_service.py   # Requetes et agregations MongoDB
-|-- docker-compose.yml
+|   |-- cli.py               # CLI Redis
+|   |-- service.py            # Operations Redis transactionnelles
+|   |-- mongo_cli.py          # CLI MongoDB
+|   `-- mongo_service.py      # Requetes et agregations MongoDB
+|-- frontend/
+|   |-- src/
+|   |   |-- components/       # Dashboard, onglets, composants UI
+|   |   |-- hooks/            # TanStack Query hooks
+|   |   `-- lib/              # API client, utilitaires
+|   |-- Dockerfile            # Build Node + Nginx
+|   `-- nginx.conf            # Reverse proxy /api -> backend
+|-- docker-compose.yml        # 4 services : redis, mongodb, api, frontend
+|-- Dockerfile                # Image API Python
+|-- config.py                 # Connexions Redis/MongoDB (env vars)
+|-- generate_data.py          # Generation de donnees
+|-- geo.py                    # Commandes geo-spatiales Redis
+|-- sync.py                   # Synchronisation Redis -> MongoDB
 |-- Makefile
-|-- config.py
-|-- generate_data.py
 `-- requirements.txt
 ```

@@ -1,9 +1,13 @@
+import os
 import redis
 from pymongo import MongoClient
 
-REDIS_HOST = "localhost"
-REDIS_PORT = 6380
+REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.environ.get("REDIS_PORT", "6380"))
 REDIS_DB = 0
+
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27018")
+MONGO_DB = "delivery_system"
 
 
 def get_redis():
@@ -13,10 +17,6 @@ def get_redis():
         db=REDIS_DB,
         decode_responses=True,
     )
-
-
-MONGO_URI = "mongodb://localhost:27018"
-MONGO_DB = "delivery_system"
 
 
 def get_mongo_db():

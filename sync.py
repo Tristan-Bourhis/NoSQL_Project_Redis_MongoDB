@@ -17,33 +17,16 @@ REGION_MAP = {
 }
 
 
-def sync_to_mongo(order_id: str, driver_id: str):
-    r = get_redis()
-    db = get_mongo_db()
-
-    svc = DeliveryService(r)
-    res = svc.complete_delivery(order_id, driver_id)
-
-    if not res.ok:
-        print(f"Erreur Redis : {res.message}")
-        return
-
-    print(f"Redis : {order_id} -> livree")
-
+def sync_delivery_to_mongo(r, db, order_id: str, driver_id: str):
     order = r.hgetall(f"order:{order_id}")
     if not order:
-        print(f"Commande {order_id} introuvable")
         return
-
     driver = r.hgetall(f"driver:{driver_id}")
     if not driver:
-        print(f"Livreur {driver_id} introuvable")
         return
-
     now = datetime.now()
     destination = order.get("destination", "")
     region = REGION_MAP.get(destination, driver.get("region", ""))
-
     document = {
         "command_id":       order_id,
         "client":           order.get("client", ""),
@@ -58,11 +41,20 @@ def sync_to_mongo(order_id: str, driver_id: str):
         "review":           "",
         "status":           "completed",
     }
+    db["deliveries"].insert_one(document)
 
-    col = db["deliveries"]
-    insert_res = col.insert_one(document)
-    print(f"MongoDB : insere _id={insert_res.inserted_id}")
-    print(f"  {order_id} | {driver.get('name')} | {document['amount']}E | {region}")
+
+def sync_to_mongo(order_id: str, driver_id: str):
+    r = get_redis()
+    db = get_mongo_db()
+    svc = DeliveryService(r)
+    res = svc.complete_delivery(order_id, driver_id)
+    if not res.ok:
+        print(f"Erreur Redis : {res.message}")
+        return
+    print(f"Redis : {order_id} -> livree")
+    sync_delivery_to_mongo(r, db, order_id, driver_id)
+    print(f"MongoDB : synced {order_id}")
 
 
 if __name__ == "__main__":
